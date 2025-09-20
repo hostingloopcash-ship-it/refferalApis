@@ -1,0 +1,14 @@
+node_modules/
+.env*
+*.log
+.DS_Store
+coverage/
+dist/
+build/
+.lorp/
+.vscode/
+.serviceAccounts.json
+DEPLOYMENT_GUIDE.md
+serviceAccounts.json
+POSTMAN_DOCUMENTATION.md
+get-id-token.js
