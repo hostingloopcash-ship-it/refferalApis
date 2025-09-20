@@ -95,8 +95,9 @@ router.get('/r/:referralId', async (req, res) => {
     });
 
     // Redirect to app store
-    console.log(`🔄 Redirecting to app store: ${process.env.APP_STORE_URL}`);
-    res.redirect(process.env.APP_STORE_URL);
+    const playStoreUrlWithRef = `${process.env.APP_STORE_URL}&ref=${referralId}`;
+    console.log(`🔄 Redirecting to app store: ${playStoreUrlWithRef}`);
+    res.redirect(playStoreUrlWithRef);
 
   } catch (error) {
     console.error('❌ Error processing referral redirect:', error);
