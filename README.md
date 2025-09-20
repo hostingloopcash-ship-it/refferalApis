@@ -25,6 +25,10 @@ Backend APIs for managing user referrals and coins/rewards in mobile application
 ### Transactions
 - `GET /api/transactions/:uid` - Get transaction history
 
+### Reviews
+- `GET /api/reviews/random` - Get random review (no auth required)
+- `GET /api/reviews` - Get all reviews (no auth required)
+
 ## Setup
 
 1. **Install dependencies:**

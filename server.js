@@ -11,6 +11,7 @@ const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const referralRoutes = require('./routes/referral');
 const coinsRoutes = require('./routes/coins');
 const transactionRoutes = require('./routes/transactions');
+const reviewsRoutes = require('./routes/reviews');
 
 // Initialize Firebase
 initializeFirebase();
@@ -52,6 +53,7 @@ app.get('/health', (req, res) => {
 app.use('/api/referral', referralRoutes);
 app.use('/api/coins', coinsRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/reviews', reviewsRoutes);
 
 // Referrals list route (separate from referral to avoid conflicts)
 app.use('/api/referrals', referralRoutes);
