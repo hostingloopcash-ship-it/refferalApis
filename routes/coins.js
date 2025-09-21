@@ -6,8 +6,29 @@ const router = express.Router();
 // POST /api/coins/update - Update user coins
 router.post('/update', async (req, res) => {
   try {
-    const { uid, coins, appName, type = 'reward', packageName } = req.body;
+    const { uid, coins, appName, type = 'reward', packageName, adminKey } = req.body;
     const db = admin.database();
+
+    // Validate admin key (mandatory)
+    if (!adminKey) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'MISSING_ADMIN_KEY',
+          message: 'Admin key is required'
+        }
+      });
+    }
+
+    if (adminKey !== process.env.ADMIN_SECRET_KEY) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'INVALID_ADMIN_KEY',
+          message: 'Invalid admin key'
+        }
+      });
+    }
 
     // Check authentication method
     const authHeader = req.headers.authorization;
