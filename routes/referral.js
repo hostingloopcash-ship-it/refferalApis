@@ -112,7 +112,7 @@ router.get('/r/:referralId', async (req, res) => {
 // POST /api/referral/update - Update referral relationships
 router.post('/update', verifyFirebaseToken, async (req, res) => {
   try {
-    const { referrerUid } = req.body; // UID received from Play Store install referral API
+    const { referrerUid, utmSource, utmMedium, utmCampaign, utmTerm, utmContent } = req.body; // UID and UTM data from Play Store install referral API
     const currentUserId = req.user.uid; // Current user's UID
     const db = admin.database();
 
@@ -173,6 +173,12 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
           showPopup: false
         }
       };
+      
+      // Add UTM data to new user if provided
+      if (Object.keys(utmData).length > 0) {
+        newUserData.utmTracking = utmData;
+      }
+      
       await currentUserRef.set(newUserData);
     }
 
@@ -196,10 +202,31 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
       totalReferrals: currentTotalReferrals + 1
     });
 
-    // Update current user's referredBy field
-    await currentUserRef.update({
+    // Prepare UTM data if provided
+    const utmData = {};
+    if (utmSource) utmData.utmSource = utmSource;
+    if (utmMedium) utmData.utmMedium = utmMedium;
+    if (utmCampaign) utmData.utmCampaign = utmCampaign;
+    if (utmTerm) utmData.utmTerm = utmTerm;
+    if (utmContent) utmData.utmContent = utmContent;
+    
+    // Add timestamp for UTM data
+    if (Object.keys(utmData).length > 0) {
+      utmData.utmTimestamp = Date.now();
+    }
+
+    // Update current user's referredBy field and UTM data
+    const updateData = {
       referredBy: referrerUid
-    });
+    };
+    
+    // Add UTM data if provided
+    if (Object.keys(utmData).length > 0) {
+      updateData.utmTracking = utmData;
+      console.log(`📊 UTM tracking data stored for user ${currentUserId}:`, utmData);
+    }
+    
+    await currentUserRef.update(updateData);
 
     // Add 100 coins to both referrer and referee for successful referral
     const referralBonus = 100;
@@ -250,6 +277,7 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
         referrerUid: referrerUid,
         newTotalReferrals: currentTotalReferrals + 1,
         coinsAdded: referralBonus,
+        utmTracked: Object.keys(utmData).length > 0,
         message: 'Current user successfully set as referral of the referrer and 100 coins added to both users'
       }
     });
