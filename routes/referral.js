@@ -30,7 +30,10 @@ router.post('/generate', verifyFirebaseToken, async (req, res) => {
         referredCoins: 0,
         totalReferrals: 0,
         referrals: [],
-        transactions: []
+        transactions: [],
+        popupControl: {
+          showPopup: false
+        }
       };
       await userRef.set(userData);
     }
@@ -165,7 +168,10 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
         referredCoins: 0,
         totalReferrals: 0,
         referrals: [],
-        transactions: []
+        transactions: [],
+        popupControl: {
+          showPopup: false
+        }
       };
       await currentUserRef.set(newUserData);
     }
@@ -195,13 +201,56 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
       referredBy: referrerUid
     });
 
+    // Add 100 coins to both referrer and referee for successful referral
+    const referralBonus = 100;
+    const referralTransaction = {
+      appName: 'Referral',
+      coins: referralBonus,
+      timestamp: Date.now(),
+      type: 'referralBonus'
+    };
+
+    // Update referrer's coins and transactions
+    const referrerCurrentEarning = referrerData.currentEarning || 0;
+    const referrerReferredCoins = referrerData.referredCoins || 0;
+    const referrerTransactions = referrerData.transactions || [];
+
+    await referrerRef.update({
+      currentEarning: referrerCurrentEarning + referralBonus,
+      referredCoins: referrerReferredCoins + referralBonus,
+      transactions: [...referrerTransactions, referralTransaction],
+      popupControl: {
+        showPopup: true,
+        transaction: referralTransaction  // Store the referral transaction that triggered the popup
+      }
+    });
+
+    // Update current user's coins and transactions
+    const currentUserData = currentUserSnapshot.exists() ? currentUserSnapshot.val() : {};
+    const currentUserCurrentEarning = currentUserData.currentEarning || 0;
+    const currentUserReferredCoins = currentUserData.referredCoins || 0;
+    const currentUserTransactions = currentUserData.transactions || [];
+
+    await currentUserRef.update({
+      currentEarning: currentUserCurrentEarning + referralBonus,
+      referredCoins: currentUserReferredCoins + referralBonus,
+      transactions: [...currentUserTransactions, referralTransaction],
+      popupControl: {
+        showPopup: true,
+        transaction: referralTransaction  // Store the referral transaction that triggered the popup
+      }
+    });
+
+    console.log(`💰 Added ${referralBonus} coins to both referrer (${referrerUid}) and referee (${currentUserId})`);
+
     res.json({
       success: true,
       data: {
         currentUserId: currentUserId,
         referrerUid: referrerUid,
         newTotalReferrals: currentTotalReferrals + 1,
-        message: 'Current user successfully set as referral of the referrer'
+        coinsAdded: referralBonus,
+        message: 'Current user successfully set as referral of the referrer and 100 coins added to both users'
       }
     });
 

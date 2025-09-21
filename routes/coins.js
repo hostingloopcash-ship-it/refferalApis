@@ -4,11 +4,15 @@ const { verifyFirebaseToken } = require('../middleware/auth');
 const router = express.Router();
 
 // POST /api/coins/update - Update user coins
-router.post('/update', verifyFirebaseToken, async (req, res) => {
+router.post('/update', async (req, res) => {
   try {
-    const { uid, coins, appName, type = 'reward' } = req.body;
+    const { uid, coins, appName, type = 'reward', packageName } = req.body;
     const db = admin.database();
-    
+
+    // Check authentication method
+    const authHeader = req.headers.authorization;
+    const hasFirebaseToken = authHeader && authHeader.startsWith('Bearer ');
+
     // Validate required fields
     if (!uid || coins === undefined || !appName) {
       return res.status(400).json({
@@ -19,7 +23,75 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
         }
       });
     }
-    
+
+    // Authentication: Either Firebase token OR valid package name
+    if (hasFirebaseToken) {
+      // Use Firebase authentication
+      try {
+        const token = authHeader.split('Bearer ')[1];
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        // Token is valid, proceed
+      } catch (error) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            code: 'INVALID_TOKEN',
+            message: 'Invalid or expired Firebase token'
+          }
+        });
+      }
+    } else if (packageName) {
+      // Use package name verification
+      try {
+        // Convert package name to Firebase-safe key (replace dots with underscores)
+        const firebaseKey = packageName.replace(/\./g, '_');
+
+        const adminRef = db.ref('admin/AllowedPackages');
+        const packageSnapshot = await adminRef.child(firebaseKey).once('value');
+
+        if (!packageSnapshot.exists()) {
+          return res.status(403).json({
+            success: false,
+            error: {
+              code: 'PACKAGE_NOT_FOUND',
+              message: 'Package name not found in allowed packages'
+            }
+          });
+        }
+
+        const packageData = packageSnapshot.val();
+        if (!packageData.isActive) {
+          return res.status(403).json({
+            success: false,
+            error: {
+              code: 'PACKAGE_INACTIVE',
+              message: 'Package is not active'
+            }
+          });
+        }
+
+        console.log(`✅ Package verification successful: ${packageName} (stored as ${firebaseKey})`);
+      } catch (error) {
+        console.error('Package verification error:', error);
+        return res.status(500).json({
+          success: false,
+          error: {
+            code: 'PACKAGE_VERIFICATION_ERROR',
+            message: 'Failed to verify package'
+          }
+        });
+      }
+    } else {
+      // No authentication method provided
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'AUTHENTICATION_REQUIRED',
+          message: 'Either Firebase token or valid packageName is required'
+        }
+      });
+    }
+
     // Validate coin amount
     if (coins < 0) {
       return res.status(400).json({
@@ -30,10 +102,10 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
         }
       });
     }
-    
+
     const userRef = db.ref(`users/${uid}`);
     const userSnapshot = await userRef.once('value');
-    
+
     let userData;
     if (!userSnapshot.exists()) {
       // Create user if doesn't exist
@@ -46,18 +118,21 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
         referredCoins: 0,
         totalReferrals: 0,
         referrals: [],
-        transactions: []
+        transactions: [],
+        popupControl: {
+          showPopup: false
+        }
       };
       await userRef.set(userData);
     } else {
       userData = userSnapshot.val();
     }
-    
+
     const currentEarning = userData.currentEarning || 0;
     const referredCoins = userData.referredCoins || 0;
     const dailyEarning = userData.dailyEarning || 0;
     const transactions = userData.transactions || [];
-    
+
     // Create new transaction
     const newTransaction = {
       appName: appName,
@@ -65,26 +140,30 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
       timestamp: Date.now(),
       type: type
     };
-    
+
     // Calculate new balances based on transaction type
     let newCurrentEarning = currentEarning + coins;
     let newReferredCoins = referredCoins;
     let newDailyEarning = dailyEarning;
-    
+
     if (type === 'referral') {
       newReferredCoins = referredCoins + coins;
     } else if (type === 'daily') {
       newDailyEarning = dailyEarning + coins;
     }
-    
+
     // Update user data
     await userRef.update({
       currentEarning: newCurrentEarning,
       referredCoins: newReferredCoins,
       dailyEarning: newDailyEarning,
-      transactions: [...transactions, newTransaction]
+      transactions: [...transactions, newTransaction],
+      popupControl: {
+        showPopup: true,
+        transaction: newTransaction  // Store the transaction that triggered the popup
+      }
     });
-    
+
     res.json({
       success: true,
       data: {
@@ -94,7 +173,7 @@ router.post('/update', verifyFirebaseToken, async (req, res) => {
         transaction: newTransaction
       }
     });
-    
+
   } catch (error) {
     console.error('Error updating coins:', error);
     res.status(500).json({
@@ -112,7 +191,7 @@ router.get('/:uid', verifyFirebaseToken, async (req, res) => {
   try {
     const requestedUid = req.params.uid;
     const authenticatedUid = req.user.uid;
-    
+
     // Check authorization - users can only access their own balance
     if (requestedUid !== authenticatedUid) {
       return res.status(403).json({
@@ -123,11 +202,11 @@ router.get('/:uid', verifyFirebaseToken, async (req, res) => {
         }
       });
     }
-    
+
     const db = admin.database();
     const userRef = db.ref(`users/${requestedUid}`);
     const userSnapshot = await userRef.once('value');
-    
+
     if (!userSnapshot.exists()) {
       return res.status(404).json({
         success: false,
@@ -137,9 +216,9 @@ router.get('/:uid', verifyFirebaseToken, async (req, res) => {
         }
       });
     }
-    
+
     const userData = userSnapshot.val();
-    
+
     res.json({
       success: true,
       data: {
@@ -149,7 +228,7 @@ router.get('/:uid', verifyFirebaseToken, async (req, res) => {
         totalReferrals: userData.totalReferrals || 0
       }
     });
-    
+
   } catch (error) {
     console.error('Error retrieving balance:', error);
     res.status(500).json({
