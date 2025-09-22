@@ -13,6 +13,7 @@ const coinsRoutes = require('./routes/coins');
 const transactionRoutes = require('./routes/transactions');
 const reviewsRoutes = require('./routes/reviews');
 const adminRoutes = require('./routes/admin');
+const attemptsRoutes = require('./routes/attempts');
 
 // Initialize Firebase
 initializeFirebase();
@@ -56,6 +57,7 @@ app.use('/api/coins', coinsRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/reviews', reviewsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/attempts', attemptsRoutes);
 
 // Referrals list route (separate from referral to avoid conflicts)
 app.use('/api/referrals', referralRoutes);
