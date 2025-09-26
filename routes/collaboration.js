@@ -1,25 +1,9 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const { connectMongoDB, CollaborationRecord } = require('../config/mongodb');
 const router = express.Router();
 
-// Ensure data directory exists
-const dataDir = path.join(__dirname, '../data');
-const collaborationFile = path.join(dataDir, 'collaboration_records.csv');
-
-// Create data directory if it doesn't exist
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-// Initialize CSV file with headers if it doesn't exist
-const initializeCSVFile = () => {
-  if (!fs.existsSync(collaborationFile)) {
-    const headers = 'Model,Name,Email,Phone,Contact,Timestamp\n';
-    fs.writeFileSync(collaborationFile, headers, 'utf8');
-    console.log('📄 Collaboration CSV file initialized');
-  }
-};
+// Initialize MongoDB connection
+connectMongoDB();
 
 // POST /api/collaboration/add - Add new collaboration record
 router.post('/add', async (req, res) => {
@@ -41,49 +25,41 @@ router.post('/add', async (req, res) => {
       timestamp
     } = req.body;
 
-    // Initialize CSV file if it doesn't exist
-    initializeCSVFile();
-
-    // Prepare CSV row data
-    const csvRow = [
-      collaborationModel || 'Not provided',
-      name || 'Not provided',
-      email || 'Not provided',
-      phone || 'Not provided',
-      contact || 'Not provided',
-      timestamp || new Date().toISOString()
-    ];
-
-    // Escape CSV values (handle commas, quotes, newlines)
-    const escapedRow = csvRow.map(field => {
-      if (typeof field === 'string') {
-        // If field contains comma, quote, or newline, wrap in quotes and escape quotes
-        if (field.includes(',') || field.includes('"') || field.includes('\n')) {
-          return `"${field.replace(/"/g, '""')}"`;
-        }
-      }
-      return field;
+    // Create new collaboration record in MongoDB
+    const collaborationRecord = new CollaborationRecord({
+      collaborationModel: collaborationModel || 'Not provided',
+      name: name || 'Not provided',
+      email: email || 'Not provided',
+      phone: phone || 'Not provided',
+      countryCode: countryCode || 'Not provided',
+      contactMethod: contactMethod || 'Not provided',
+      contact: contact || 'Not provided',
+      password: password || 'Not provided',
+      userExperience: userExperience || 'Not provided',
+      trafficSourcesType: trafficSourcesType || 'Not provided',
+      trafficSources: trafficSources || 'Not provided',
+      additionalNotes: additionalNotes || 'Not provided',
+      termsAccepted: termsAccepted || false,
+      timestamp: timestamp ? new Date(timestamp) : new Date()
     });
 
-    // Create CSV line
-    const csvLine = escapedRow.join(',') + '\n';
+    // Save to MongoDB
+    const savedRecord = await collaborationRecord.save();
 
-    // Append to CSV file
-    fs.appendFileSync(collaborationFile, csvLine, 'utf8');
-
-    console.log(`📝 New collaboration record added: ${name} (${email})`);
+    console.log(`📝 New collaboration record added: ${name} (${email}) - ID: ${savedRecord._id}`);
 
     res.json({
       success: true,
       data: {
         message: 'Collaboration record added successfully',
         recordData: {
-          model: collaborationModel,
-          name: name,
-          email: email,
-          phone: phone,
-          contact: contact,
-          timestamp: timestamp
+          id: savedRecord._id,
+          model: savedRecord.collaborationModel,
+          name: savedRecord.name,
+          email: savedRecord.email,
+          phone: savedRecord.phone,
+          contact: savedRecord.contact,
+          timestamp: savedRecord.timestamp
         }
       }
     });
@@ -116,7 +92,7 @@ router.get('/download/:secretKey', async (req, res) => {
       });
     }
 
-    // Check if secret key matches (using a different env variable for this feature)
+    // Check if secret key matches
     const downloadSecretKey = process.env.DOWNLOAD_SECRET_KEY || process.env.ADMIN_SECRET_KEY;
     if (secretKey !== downloadSecretKey) {
       return res.status(403).json({
@@ -128,20 +104,12 @@ router.get('/download/:secretKey', async (req, res) => {
       });
     }
 
-    // Check if file exists
-    if (!fs.existsSync(collaborationFile)) {
-      initializeCSVFile(); // Create empty file with headers
-    }
-
-    // Get file stats
-    const stats = fs.statSync(collaborationFile);
-    const fileSize = stats.size;
-    const lastModified = stats.mtime;
-
-    // Count records (excluding header)
-    const fileContent = fs.readFileSync(collaborationFile, 'utf8');
-    const lines = fileContent.split('\n').filter(line => line.trim() !== '');
-    const recordCount = Math.max(0, lines.length - 1); // Subtract 1 for header
+    // Get record count from MongoDB
+    const recordCount = await CollaborationRecord.countDocuments();
+    
+    // Get latest record for last modified info
+    const latestRecord = await CollaborationRecord.findOne().sort({ createdAt: -1 });
+    const lastModified = latestRecord ? latestRecord.createdAt : new Date();
 
     console.log(`📊 Download request for collaboration records: ${recordCount} records`);
 
@@ -149,10 +117,9 @@ router.get('/download/:secretKey', async (req, res) => {
     res.json({
       success: true,
       data: {
-        message: 'File ready for download',
+        message: 'CSV file ready for download',
         fileInfo: {
           recordCount: recordCount,
-          fileSize: fileSize,
           lastModified: lastModified,
           fileName: 'collaboration_records.csv'
         },
@@ -190,21 +157,47 @@ router.get('/file/:secretKey', async (req, res) => {
       });
     }
 
-    // Check if file exists
-    if (!fs.existsSync(collaborationFile)) {
-      initializeCSVFile();
-    }
+    // Fetch all records from MongoDB
+    const records = await CollaborationRecord.find().sort({ createdAt: -1 });
+
+    // Generate CSV content
+    const csvHeaders = 'Model,Name,Email,Phone,Contact,Timestamp\n';
+    
+    const csvRows = records.map(record => {
+      const row = [
+        record.collaborationModel || 'Not provided',
+        record.name || 'Not provided',
+        record.email || 'Not provided',
+        record.phone || 'Not provided',
+        record.contact || 'Not provided',
+        record.timestamp ? record.timestamp.toISOString() : new Date().toISOString()
+      ];
+
+      // Escape CSV values (handle commas, quotes, newlines)
+      const escapedRow = row.map(field => {
+        if (typeof field === 'string') {
+          // If field contains comma, quote, or newline, wrap in quotes and escape quotes
+          if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+            return `"${field.replace(/"/g, '""')}"`;
+          }
+        }
+        return field;
+      });
+
+      return escapedRow.join(',');
+    });
+
+    const csvContent = csvHeaders + csvRows.join('\n');
 
     // Set headers for file download
     const fileName = `collaboration_records_${new Date().toISOString().split('T')[0]}.csv`;
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
-    // Stream the file
-    const fileStream = fs.createReadStream(collaborationFile);
-    fileStream.pipe(res);
+    // Send CSV content
+    res.send(csvContent);
 
-    console.log(`📥 File downloaded: ${fileName}`);
+    console.log(`📥 CSV file downloaded: ${fileName} (${records.length} records)`);
 
   } catch (error) {
     console.error('Error downloading file:', error);
